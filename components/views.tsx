@@ -8,7 +8,7 @@ import {Account,Attachment,Budget,Contact,Loan,RecurringRule,Transaction,TxDraft
 import {accountBalances,downloadCSV,downloadEmiCalendar,expenseBreakdown,getInsights,loanBalance,money,monthlyChart,nextLoanDue,personBalance,shortDate,thisMonth,totals} from '@/lib/logic';
 import {Button,Empty,ErrorMessage,SearchInput,Stat,Tag} from './ui';
 import {Receipt} from './forms';
-export type View='dashboard'|'transactions'|'accounts'|'people'|'loans'|'budgets'|'recurring'|'reports'|'cards'|'goals'|'planner'|'coach'|'vault'|'settings';
+export type View='dashboard'|'transactions'|'smart'|'accounts'|'people'|'loans'|'budgets'|'recurring'|'reports'|'cards'|'goals'|'planner'|'coach'|'vault'|'settings';
 export type EditorType='transaction'|'account'|'person'|'loan'|'budget'|'recurring';
 export type OnEdit=(type:EditorType,record?:Transaction|Account|Contact|Loan|Budget|RecurringRule|null)=>void;
 const PIE_COLORS=['#82e7be','#8c9dff','#ffbe76','#fc809a','#65c9ef','#b8a9f5','#8ce4c4','#ffc7a0'];

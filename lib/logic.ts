@@ -67,7 +67,12 @@ export function getInsights(data:FinanceData){
 }
 export function guessCategory(description:string,type:TxType){if(type==='income')return /refund|cashback|reversal/i.test(description)?'Refund':'Other';const x=description.toLowerCase();
  const map:[RegExp,string][]=[[/swiggy|zomato|cafe|restaurant|tea|coffee|food/,'Food & Drinks'],[/amazon|flipkart|myntra|shopping/,'Shopping'],[/uber|ola|petrol|diesel|fuel|metro|auto/,'Transport'],[/electric|recharge|mobile|internet|jio|airtel|bill/,'Bills & Utilities'],[/hospital|medicine|pharmacy|doctor/,'Healthcare'],[/school|college|tuition|fees/,'Education'],[/netflix|movie|spotify|prime/,'Entertainment'],[/grocery|mart|dmart|vegetable/,'Groceries'],[/rent|house/,'Rent']];return map.find(([re])=>re.test(x))?.[1]||'Other';}
-export function csvEscape(v:unknown){const s=String(v??'');return /[",\n\r]/.test(s)?'"'+s.replaceAll('"','""')+'"':s;}
+/** Escape spreadsheet formulas when opening exported CSV in Excel or Sheets. */
+export function csvEscape(v:unknown){
+ const input=String(v??'');
+ const safe=(typeof v==='string' && /^[\s]*[=+@-]/.test(input))?"'"+input:input;
+ return /[",\n\r]/.test(safe)?'"'+safe.replaceAll('"','""')+'"':safe;
+}
 export function downloadCSV(file:string,rows:(string|number|null|undefined)[][]){const csv=rows.map(r=>r.map(csvEscape).join(',')).join('\r\n');const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=file;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 export function parseCSV(s:string){let rows:string[][]=[],row:string[]=[],col='',quoted=false;for(let i=0;i<s.length;i++){const ch=s[i];if(ch==='"'&&quoted&&s[i+1]==='"'){col+='"';i++;}else if(ch==='"')quoted=!quoted;else if(ch===','&&!quoted){row.push(col);col='';}else if((ch==='\n'||ch==='\r')&&!quoted){if(ch==='\r'&&s[i+1]==='\n')i++;row.push(col);if(row.some(x=>x.trim()))rows.push(row);row=[];col='';}else col+=ch;}row.push(col);if(row.some(x=>x.trim()))rows.push(row);return rows;}
 
