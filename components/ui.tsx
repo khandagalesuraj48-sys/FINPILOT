@@ -1,0 +1,16 @@
+'use client';
+import React,{useEffect} from 'react';
+import {AlertCircle,Check,ChevronDown,LoaderCircle,Search, X} from 'lucide-react';
+export const classNames=(...a:(string|false|undefined|null)[])=>a.filter(Boolean).join(' ');
+export function Button({children,variant='primary',className='',loading=false,...props}:React.ButtonHTMLAttributes<HTMLButtonElement>&{variant?:'primary'|'secondary'|'ghost'|'danger';loading?:boolean}){return <button {...props} className={classNames('btn',`btn-${variant}`,className)} disabled={loading||props.disabled}>{loading&&<LoaderCircle size={16} className="spin"/>}{children}</button>}
+export function Modal({title,subtitle,onClose,children,width='normal'}:{title:string;subtitle?:string;onClose:()=>void;children:React.ReactNode;width?:'normal'|'wide'}){
+ useEffect(()=>{const fn=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose()};document.addEventListener('keydown',fn);const overflow=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.removeEventListener('keydown',fn);document.body.style.overflow=overflow}},[onClose]);
+ return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><div className={classNames('modal','modal-'+width)} role="dialog" aria-modal="true" aria-label={title}><div className="modal-head"><div><h2>{title}</h2>{subtitle&&<p className="muted small">{subtitle}</p>}</div><button className="icon-btn" aria-label="Close" onClick={onClose}><X size={20}/></button></div><div className="modal-scroll">{children}</div></div></div>;
+}
+export function Field({label,children,hint}:{label:string;children:React.ReactNode;hint?:string}){return <label className="field"><span>{label}</span>{children}{hint&&<small className="muted">{hint}</small>}</label>}
+export function Empty({icon,title,body,action}:{icon:React.ReactNode;title:string;body:string;action?:React.ReactNode}){return <div className="empty"><div className="empty-icon">{icon}</div><h3>{title}</h3><p>{body}</p>{action}</div>}
+export function Stat({icon,eyebrow,value,sub,tone='normal'}:{icon:React.ReactNode;eyebrow:string;value:string;sub?:string;tone?:'normal'|'green'|'rose'|'blue'}){return <div className={classNames('stat-card','stat-'+tone)}><div className="stat-icon">{icon}</div><p className="stat-label">{eyebrow}</p><h3>{value}</h3>{sub&&<span className="stat-sub">{sub}</span>}</div>}
+export function Tag({children,kind='neutral'}:{children:React.ReactNode;kind?:'neutral'|'green'|'red'|'amber'|'blue'}){return <span className={`tag tag-${kind}`}>{children}</span>}
+export function ErrorMessage({message}:{message:string}){return <div className="error-note"><AlertCircle size={16}/><span>{message}</span></div>}
+export function Spinner(){return <div className="loader"><LoaderCircle className="spin" size={28}/><span>Preparing your workspace…</span></div>}
+export function SearchInput({value,onChange,placeholder='Search'}:{value:string;onChange:(v:string)=>void;placeholder?:string}){return <div className="search-wrap"><Search size={17}/><input aria-label={placeholder} placeholder={placeholder} value={value} onChange={e=>onChange(e.target.value)}/>{value&&<button aria-label="Clear search" onClick={()=>onChange('')}><X size={15}/></button>}</div>}

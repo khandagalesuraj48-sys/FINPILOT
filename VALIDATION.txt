@@ -1,0 +1,28 @@
+FINPILOT AI — FINAL V1.1 SOURCE VALIDATION
+Prepared: October 11, 2026
+
+PASS  - All 10 project TypeScript/TSX modules parsed with TypeScript transpileModule.
+PASS  - scripts/smoke-check.cjs ran using globally installed TypeScript, with finance and CSV calculation assertions.
+PASS  - Account balance: INR 182752 for seeded demo across all periods.
+PASS  - Rahul ledger receivable INR 7000, Sneha payable INR 5000.
+PASS  - Loan projected principal INR 309500 after paying INR 10500 principal.
+PASS  - SQL defines RLS for accounts, contacts, loans, transactions, attachments, budgets, recurring_rules.
+PASS  - Private receipt storage policy and ownership triggers are included.
+PASS  - Three static screenshot previews rendered via Chromium + existing app CSS; mobile width 390px.
+PASS  - Fresh schema and V1 upgrade migration included.
+PASS  - ZIP checksum integrity confirmed after generation.
+
+NOT RUN - npm install / full Next.js production build; npm registry connectivity unavailable in authoring container.
+NOT RUN - TypeScript full typechecking against Next.js/React/Supabase type packages (same registry restriction).
+NOT RUN - Real Supabase auth, database, storage, password-reset and multi-user RLS integration tests.
+NOT RUN - Actual Vercel deployment and real UPI/bank integrations.
+
+REQUIRED USER POST-EXTRACTION VERIFICATION:
+1. npm install
+2. npm run check
+3. Supabase schema + Storage + Auth/SMTP + allowed redirect URLs.
+4. Deploy to Vercel and run TEST_CHECKLIST.md.
+5. Security/legal review before publicly inviting users.
+
+CAUTION: Preview screenshots are static mockups reusing the shipped CSS and DOM layout, not screenshots of an executable Next.js app.
+CAUTION: No live UPI/SMS automatic sync, direct bank balances, or background web push is promised.
