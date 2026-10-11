@@ -17,6 +17,9 @@ const logic=load('lib/logic.ts',{'./financial-core':core,'date-fns':{}});
 let checks=0;const eq=(a,b)=>{assert.deepEqual(a,b);checks++};const ok=a=>{assert.ok(a);checks++};
 let p=alert.parseBankAlert('INR 850.00 debited from A/c XX1234 for UPI to Grocery Store. UPI Ref 123456789012. Avl bal Rs 2000');
 ok(p);eq(p.direction,'debit');eq(p.amount,850);eq(p.reference,'123456789012');
+eq(p.merchant,'Grocery Store');
+const captured=alert.parseBankAlert('Rs.100.00 debited from A/c XX1234 via UPI to TEST STORE. UPI Ref 123456789012.');
+ok(captured);eq(captured.merchant,'TEST STORE');eq(captured.amount,100);eq(captured.reference,'123456789012');
 eq(alert.parseBankAlert('OTP 812839 for purchase of INR 5000'),null);
 eq(alert.parseBankAlert('Your UPI request of INR 1000 is pending'),null);
 eq(alert.parseBankAlert('Transaction of INR 100 failed and was declined'),null);
@@ -42,6 +45,11 @@ const budgetData={...data,transactions:[{type:'expense',category:'Food & Drinks'
 eq(logic.csvEscape('=SUM(A1:A2)'),"'=SUM(A1:A2)");
 eq(logic.csvEscape('@cmd'),"'@cmd");
 eq(logic.csvEscape(123.45),'123.45');
+// Regression: the SQL source constraint allows manual/csv/recurring, not manual_alert.
+const hubSource=fs.readFileSync(path.join(__dirname,'..','components/smart-hub.tsx'),'utf8');
+ok(hubSource.includes("source:'manual'"));
+ok(!hubSource.includes("source:'manual_alert'"));
+ok(hubSource.includes("setDesc(parseBankAlert(next)?.merchant||'')"));
 // Static syntax validation for the newly added UI and integration files.
 for(const file of ['components/smart-hub.tsx','components/app-shell.tsx','components/views.tsx','lib/logic.ts']){
  const src=fs.readFileSync(path.join(__dirname,'..',file),'utf8');const tr=ts.transpileModule(src,{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.Preserve},fileName:file,reportDiagnostics:true});

@@ -31,8 +31,13 @@ export function parseBankAlert(raw:string):ParsedBankAlert|null{
  try{amount=paise(chosen.value.amount.replaceAll(',',''));if(amount<=0n)return null;}catch{return null;}
  const ref=text.match(/\b(?:UTR|RRN|UPI\s*(?:REF|TXN)?|REF(?:ERENCE)?(?:\s*(?:NO|NUMBER))?|TXN\s*(?:ID|NO)?)\s*(?:[:#-]|\s)\s*([0-9]{8,22})\b/i)?.[1]||null;
  const masked=text.match(/(?:a\/?c|account|acct|card)\s*(?:no\.?|number|ending|xx|x|\*)*\s*[:\-]?\s*([xX*]{1,8}[\s-]*\d{2,4})\b/i)?.[1]?.replaceAll(' ','')||null;
- const merchantMatch=text.match(/\b(?:paid to|sent to|to|at|from)\s+([a-z0-9@._ -]{3,60})(?=\s+(?:on|via|upi|ref|utr|avl|bal|available|txn|a\/c)\b|[.,;]|$)/i);
- const merchant=merchantMatch?.[1]?.trim()||null;
+ // Prefer actual counterparty phrases; do not mistake "debited from A/c" for a merchant.
+ // End at a reference keyword or punctuation; otherwise the old greedy parser
+ // swallowed "UPI Ref ..." into the merchant's name.
+ const merchantMatch=text.match(/\b(?:paid to|sent to|transferred to|to|at)\s+([a-z0-9@ &_()+/-]{2,75}?)(?=\s+(?:on|via|upi|ref|utr|rrn|avl|bal|available|txn|a\/c)\b|[.,;]|$)/i)
+   ||text.match(/\b(?:received from|credited from)\s+([a-z0-9@ &_()+/-]{2,75}?)(?=\s+(?:on|via|upi|ref|utr|rrn|avl|bal|available|txn|a\/c)\b|[.,;]|$)/i);
+ const candidate=merchantMatch?.[1]?.trim()||'';
+ const merchant=candidate&&!/^(?:a\/?c|account|acct|card)\b/i.test(candidate)?candidate:null;
  const warnings:string[]=[];
  if(!ref)warnings.push('No unique bank reference detected; review for duplicates.');
  if(!merchant)warnings.push('Counterparty could not be confidently identified.');
