@@ -1,0 +1,14 @@
+FINPILOT V2 TypeScript Hotfix (2026-10-11)
+
+Patches only:
+- tsconfig.json: target ES2018 -> ES2020 for BigInt literals
+- lib/finance.tsx: one TypeScript-only assertion for dynamic Supabase update
+
+Instructions (PowerShell, from FINPILOT repo root):
+Expand-Archive -Path "$HOME\Downloads\FINPILOT_V2_TYPESCRIPT_HOTFIX.zip" -DestinationPath . -Force
+npm run lint
+npm run test:smoke
+npm run build
+
+Do not push if checks fail. Do not run npm audit fix --force blindly.
+This source patch was locally syntax-checked but NOT validated with a full Next.js build in the current environment (package registry unavailable).

@@ -1,0 +1,101 @@
+'use client';
+import React,{useMemo,useState} from 'react';
+import {format,addMonths,addDays,differenceInCalendarDays} from 'date-fns';
+import {Banknote,CalendarDays,CalendarClock,CheckCircle2,CreditCard,FileText,Lightbulb,Plus,Sparkles,Target,Trash2,WalletCards,AlertTriangle,ArrowRight,Paperclip} from 'lucide-react';
+import {useFinance} from '@/lib/finance';
+import {accountBalances,downloadEmiCalendar,expenseBreakdown,getInsights,loanBalance,money,nextLoanDue,personBalance,totals} from '@/lib/logic';
+import {cardPosition,comparePrepayment,goalRequiredPerMonth,paise,rupees,sumPaise} from '@/lib/financial-core';
+import type {Account,CardProfile,Loan,SavingsGoal} from '@/lib/types';
+import {Button,ErrorMessage,Tag} from './ui';
+import {Receipt} from './forms';
+
+function PageHead({eyebrow,title,desc,action}:{eyebrow:string;title:string;desc:string;action?:React.ReactNode}){
+ return <div className="page-head"><div><p className="overline">{eyebrow}</p><h1>{title}</h1><p className="muted">{desc}</p></div>{action&&<div className="page-action">{action}</div>}</div>;
+}
+function Surface({children}:{children:React.ReactNode}){return <section className="panel power-surface">{children}</section>}
+function SimpleField({label,children}:{label:string;children:React.ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}
+const validMoney=(s:string)=>{const value=paise(s);if(value<0n)throw new Error('Amount cannot be negative');return rupees(value)};
+
+/** Credit card purchases are EXPENSE from card account. Card repayments are TRANSFERS from bank to card. */
+export function CardsView({openAccount}:{openAccount:()=>void}){
+ const f=useFinance();const accounts=f.data.accounts.filter(a=>a.kind==='credit_card');const balances=accountBalances(f.data);
+ const [selected,setSelected]=useState<string|null>(null),[limit,setLimit]=useState(''),[issuer,setIssuer]=useState(''),[digits,setDigits]=useState(''),[statement,setStatement]=useState('5'),[due,setDue]=useState('25'),[rate,setRate]=useState('0'),[error,setError]=useState(''),[saving,setSaving]=useState(false);
+ const configured=f.data.card_profiles;
+ const edit=(id:string)=>{const item=configured.find(c=>c.account_id===id);setSelected(id);setLimit(item?String(item.credit_limit):'');setIssuer(item?.issuer||'');setDigits(item?.last_four||'');setStatement(String(item?.statement_day||5));setDue(String(item?.due_day||25));setRate(String(item?.annual_rate||0));setError('');};
+ async function save(e:React.FormEvent){e.preventDefault();if(!selected)return;setSaving(true);setError('');try{
+  const draft={account_id:selected,issuer:issuer.trim(),last_four:digits.trim(),credit_limit:validMoney(limit),statement_day:Number(statement),due_day:Number(due),annual_rate:Number(rate)};
+  if(draft.credit_limit<=0)throw new Error('Credit limit must be positive');
+  const existing=configured.find(c=>c.account_id===selected);if(existing)await f.update('card_profiles',existing.id,draft);else await f.create('card_profiles',draft);
+  setSelected(null);
+ }catch(e){setError((e as Error).message)}finally{setSaving(false)}}
+ return <><PageHead eyebrow="PAY SMARTER" title="Credit cards" desc="See what you owe, track utilization and prevent card repayment double-counting." action={<Button onClick={openAccount}><Plus size={17}/> Add credit-card account</Button>}/>
+ <div className="tip">For a new card first create an account with type <strong>Credit card</strong>. Enter existing unpaid balance as a negative opening balance. Then configure its limit here. A card purchase is an Expense; repaying the bill is a Transfer from bank to card, not another expense.</div>
+ <div className="power-grid">{accounts.map(a=>{const card=configured.find(x=>x.account_id===a.id),balance=balances[a.id]||0,position=card?cardPosition(balance,Number(card.credit_limit)):null;
+ return <Surface key={a.id}><div className="power-heading"><div className="power-mini-icon"><CreditCard size={21}/></div><Tag kind={card?'green':'amber'}>{card?'Configured':'Setup required'}</Tag></div><h2>{a.name}</h2><p className="muted small">{card?.issuer||'Card issuer not set'} {card?.last_four?' •••• '+card.last_four:''}</p><div className="power-amount">{money(Math.max(0,-balance))}</div><div className="muted small">Outstanding tracked liability — not a bank-verified statement</div>{card&&position?<><div className="power-bar"><span style={{width:`${Math.min(100,position.utilizationPct)}%`}}/></div><div className="power-pair"><span>Credit limit</span><strong>{money(Number(card.credit_limit))}</strong></div><div className="power-pair"><span>Available credit</span><strong>{money(position.available)}</strong></div><div className="power-pair"><span>Utilization</span><strong>{position.utilizationPct}%</strong></div><div className="power-pair"><span>Statement / due day</span><strong>{card.statement_day} / {card.due_day}</strong></div>{position.overLimit>0&&<p className="red-text small">Over tracked limit by {money(position.overLimit)}</p>}</>:<p className="muted small">Configure credit limit and billing dates to enable alerts.</p>}<Button variant="secondary" onClick={()=>edit(a.id)}>{card?'Edit card setup':'Configure card'}</Button></Surface>})}</div>
+ {!accounts.length&&<Surface><p>You have no credit card accounts yet. Add one to start tracking cards and repayments.</p><Button onClick={openAccount}>Create credit-card account</Button></Surface>}
+ {selected&&<Surface><h2>{configured.some(x=>x.account_id===selected)?'Edit':'Configure'} card details</h2><form className="form-stack" onSubmit={save}><div className="form-grid"><SimpleField label="Issuer / bank"><input value={issuer} maxLength={100} onChange={e=>setIssuer(e.target.value)} placeholder="HDFC Bank"/></SimpleField><SimpleField label="Last four digits (optional)"><input value={digits} maxLength={4} pattern="[0-9]{4}" onChange={e=>setDigits(e.target.value)} placeholder="1234"/></SimpleField></div><div className="form-grid"><SimpleField label="Credit limit (₹)"><input required type="number" min="0.01" step="0.01" value={limit} onChange={e=>setLimit(e.target.value)}/></SimpleField><SimpleField label="Annual interest % (informational)"><input type="number" min="0" max="200" step="0.001" value={rate} onChange={e=>setRate(e.target.value)}/></SimpleField></div><div className="form-grid"><SimpleField label="Statement day (1–28)"><input type="number" min="1" max="28" value={statement} onChange={e=>setStatement(e.target.value)} required/></SimpleField><SimpleField label="Payment due day (1–28)"><input type="number" min="1" max="28" value={due} onChange={e=>setDue(e.target.value)} required/></SimpleField></div>{error&&<ErrorMessage message={error}/>}<div className="form-actions"><Button disabled={saving}>{saving?'Saving…':'Save card'}</Button><Button variant="ghost" type="button" onClick={()=>setSelected(null)}>Cancel</Button></div></form></Surface>}
+ </>;
+}
+
+export function GoalsView(){const f=useFinance(),goals=f.data.savings_goals;const [open,setOpen]=useState(false),[editing,setEditing]=useState<SavingsGoal|null>(null),[name,setName]=useState(''),[target,setTarget]=useState(''),[saved,setSaved]=useState('0'),[date,setDate]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const begin=(x?:SavingsGoal)=>{setEditing(x||null);setName(x?.name||'');setTarget(x?String(x.target_amount):'');setSaved(x?String(x.saved_amount):'0');setDate(x?.target_date||'');setOpen(true);setError('');};
+ async function save(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const draft={name:name.trim(),target_amount:validMoney(target),saved_amount:validMoney(saved),target_date:date||null,color:'mint'};if(draft.target_amount<=0||!draft.name)throw new Error('Enter goal name and positive target');if(editing)await f.update('savings_goals',editing.id,draft);else await f.create('savings_goals',draft);setOpen(false);}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+ async function remove(x:SavingsGoal){if(!confirm(`Remove savings goal ${x.name}?`))return;try{await f.remove('savings_goals',x.id)}catch(e){setError((e as Error).message)}}
+ return <><PageHead eyebrow="MAKE PROGRESS VISIBLE" title="Savings goals" desc="Plan your next milestone with clear monthly savings targets." action={<Button onClick={()=>begin()}><Plus size={17}/> New goal</Button>}/><div className="tip">Goal progress is entered manually. It does not reserve money in your bank account, transfer funds or double-count income.</div>
+ <div className="power-grid">{goals.map(x=>{const p=x.target_amount?Math.round(Number(x.saved_amount)/Number(x.target_amount)*100):0;return <Surface key={x.id}><div className="power-heading"><div className="power-mini-icon"><Target/></div><Tag kind={p>=100?'green':'blue'}>{p>=100?'Achieved':`${Math.min(100,p)}% complete`}</Tag></div><h2>{x.name}</h2><div className="power-amount">{money(x.saved_amount)} <span className="muted small">/ {money(x.target_amount)}</span></div><div className="power-bar"><span style={{width:`${Math.max(0,Math.min(100,p))}%`}}/></div><div className="power-pair"><span>Remaining</span><strong>{money(Math.max(0,Number(x.target_amount)-Number(x.saved_amount)))}</strong></div>{x.target_date&&<><div className="power-pair"><span>Target date</span><strong>{x.target_date}</strong></div><div className="power-pair"><span>Suggested monthly saving</span><strong>{money(goalRequiredPerMonth(Number(x.saved_amount),Number(x.target_amount),x.target_date))}</strong></div></>}<div className="power-actions"><Button variant="secondary" onClick={()=>begin(x)}>Update progress</Button><button type="button" className="icon-btn danger-text" title="Delete goal" onClick={()=>remove(x)}><Trash2 size={16}/></button></div></Surface>})}</div>
+ {!goals.length&&<Surface><p className="muted">Start with an emergency fund, a vacation, education or a future purchase.</p><Button onClick={()=>begin()}>Create your first goal</Button></Surface>}
+ {open&&<Surface><h2>{editing?'Update':'Create'} savings goal</h2><form className="form-stack" onSubmit={save}><SimpleField label="Goal name"><input required value={name} maxLength={120} onChange={e=>setName(e.target.value)} placeholder="Emergency fund"/></SimpleField><div className="form-grid"><SimpleField label="Target amount (₹)"><input required min="0.01" step="0.01" type="number" value={target} onChange={e=>setTarget(e.target.value)}/></SimpleField><SimpleField label="Manually tracked savings (₹)"><input required min="0" step="0.01" type="number" value={saved} onChange={e=>setSaved(e.target.value)}/></SimpleField></div><SimpleField label="Target date (optional)"><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></SimpleField>{error&&<ErrorMessage message={error}/>}<div className="form-actions"><Button disabled={busy}>{busy?'Saving…':'Save goal'}</Button><Button variant="ghost" type="button" onClick={()=>setOpen(false)}>Cancel</Button></div></form></Surface>}
+ </>;
+}
+
+type Upcoming={key:string;date:string;name:string;amount:number;kind:'income'|'bill'|'emi';note:string};
+function upcoming(data:ReturnType<typeof useFinance>['data'], horizonDays:number, asOf=new Date()):Upcoming[]{
+ const start=format(asOf,'yyyy-MM-dd'),end=format(addDays(asOf,horizonDays),'yyyy-MM-dd');const result:Upcoming[]=[];
+ for(let i=0;i<5;i++){const day=addMonths(new Date(asOf.getFullYear(),asOf.getMonth(),1,12),i),month=format(day,'yyyy-MM');
+  for(const r of data.recurring_rules){const date=`${month}-${String(r.day_of_month).padStart(2,'0')}`;if(!r.active||date<start||date>end||date<r.starts_on||(r.ends_on&&date>r.ends_on))continue;
+   if(data.transactions.some(t=>t.import_hash===`recurring:${r.id}:${month}`))continue;
+   result.push({key:`r-${r.id}-${month}`,date,name:r.name,amount:Number(r.amount),kind:r.type==='income'?'income':'bill',note:'Scheduled rule · not a confirmed transaction'});
+  }
+  for(const loan of data.loans){if(loanBalance(loan,data.transactions)<=0)continue;
+   const date=`${month}-${String(loan.due_day).padStart(2,'0')}`;
+   if(date<start||date>end||date<loan.start_date)continue;
+   if(data.transactions.some(t=>t.loan_id===loan.id&&t.type==='loan_payment'&&t.occurred_at.slice(0,7)===month))continue;
+   result.push({key:`l-${loan.id}-${month}`,date,name:loan.name,amount:Number(loan.emi_amount),kind:'emi',note:'Expected EMI · lender statement prevails'});
+  }
+ }
+ return result.sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name));
+}
+export function PlannerView(){const f=useFinance(),[horizon,setHorizon]=useState(30);const list=useMemo(()=>upcoming(f.data,horizon),[f.data,horizon]);const base=totals(f.data).cashBalance;
+ const future=rupees(paise(base)+sumPaise(list.map(x=>paise(x.kind==='income'?x.amount:-x.amount))));
+ return <><PageHead eyebrow="SEE AHEAD" title="Financial calendar & forecast" desc="Know what's coming before it affects your cash flow."/>
+ <div className="toolbar standalone"><div className="power-actions">{[30,60,90].map(d=><Button key={d} variant={horizon===d?'primary':'secondary'} onClick={()=>setHorizon(d)}>{d} days</Button>)}</div></div>
+ <div className="power-grid"><Surface><p className="muted small">Current tracked cash & bank balance</p><div className="power-amount">{money(base)}</div><p className="muted small">Not a verified bank balance. Card debt shown separately.</p></Surface><Surface><p className="muted small">Projected after known commitments</p><div className={`power-amount ${future<0?'red-text':''}`}>{money(future)}</div><p className="muted small">Assumes scheduled income arrives; excludes unscheduled costs.</p></Surface></div>
+ {future<0&&<div className="tip space-top"><AlertTriangle size={16}/> Potential shortfall of {money(-future)}. Check actual balances, recurring payments and expected income.</div>}
+ <Surface><div className="section-heading"><h2>Upcoming commitments</h2><span className="soft-pill">Next {horizon} days</span></div><div className="power-event-list">{list.map(x=><div key={x.key} className="power-event"><span className="power-date">{format(new Date(x.date+'T12:00:00'),'dd MMM')}</span><div><strong>{x.name}</strong><p className="muted small">{x.note}</p></div><strong className={x.kind==='income'?'green-text':'red-text'}>{x.kind==='income'?'+':'−'}{money(x.amount)}</strong></div>)}{!list.length&&<p className="muted">No future recurring rules or EMIs recorded within this period.</p>}</div></Surface><div className="tip">This is a deterministic scenario based on saved rules, not a banking prediction or payment guarantee. Calendar alerts are visible when the app is open; background push needs a separate notification service.</div>
+ </>;
+}
+
+export function FinanceCoachView(){const {data}=useFinance();const [q,setQ]=useState('spending'),[custom,setCustom]=useState('');const sum=totals(data),spending=expenseBreakdown(data),cards=data.accounts.filter(a=>a.kind==='credit_card'),balances=accountBalances(data);
+ const totalOwed=rupees(sumPaise(data.contacts.map(c=>paise(Math.max(0,personBalance(data.transactions,c.id))))));
+ const top=spending[0];const soon=data.loans.filter(l=>loanBalance(l,data.transactions)>0).map(l=>({l,d:nextLoanDue(l,data.transactions)})).filter(x=>differenceInCalendarDays(x.d,new Date())<=30&&differenceInCalendarDays(x.d,new Date())>=0);
+ const budgetTotal=data.budgets.filter(b=>b.month===format(new Date(),'yyyy-MM')).reduce((s,b)=>s+Number(b.amount),0);
+ const answers:Record<string,{title:string;body:string}>= {
+ spending:{title:'Your spending picture',body:top?`${top.name} is the largest category this month at ${money(top.value)}. Total recognized expenses are ${money(sum.expenses)}. This excludes loan principal and internal transfers.`:'Record expenses to see meaningful spending trends.'},
+ emi:{title:'Your upcoming EMIs',body:soon.length?`${soon.length} EMI(s) fall within 30 days, totalling ${money(soon.reduce((s,x)=>s+Number(x.l.emi_amount),0))}. Available tracked cash is ${money(sum.cashBalance)}. Confirm dates and cleared funds with lenders.`:'No unpaid EMIs are scheduled within the next 30 days based on your records.'},
+ udhar:{title:'Money you can follow up on',body:`Total tracked receivables: ${money(totalOwed)} across ${data.contacts.length} people. This is a ledger estimate, not a guarantee of recovery.`},
+ budget:{title:'Your monthly budgets',body:budgetTotal?`You allocated ${money(budgetTotal)} across ${data.budgets.filter(b=>b.month===format(new Date(),'yyyy-MM')).length} categories. Compare with your Reports for overspending.`:'No budgets configured for the current month. Start with your top recurring category.'},
+ cards:{title:'Credit card debt',body:cards.length?`You have ${cards.length} credit card account(s) with tracked outstanding dues of ${money(cards.reduce((s,a)=>s+Math.max(0,-(balances[a.id]||0)),0))}. Card bill payment must be logged as an internal transfer, not a new expense.`:'No card accounts configured yet.'},
+ };
+ const inferred=custom.trim().toLowerCase();const chosen=inferred?( /emi|loan|कर्ज/i.test(inferred)?'emi':/udhar|उधार|कडून|collect|person|receive/i.test(inferred)?'udhar':/budget|बजेट/i.test(inferred)?'budget':/card|credit/i.test(inferred)?'cards':'spending'):q;
+ return <><PageHead eyebrow="EXPLAINABLE INTELLIGENCE" title="FINPILOT Insights" desc="Ask questions using safe, deterministic calculations from your saved records."/>
+ <div className="tip"><Lightbulb size={16}/> This is the local rule-based finance coach, not a large-language-model chat service. It does not send your financial records to an external AI provider. Figures are based on tracked data, not bank-verified balances.</div>
+ <Surface><h2>What would you like to understand?</h2><div className="power-actions power-wrap">{[{id:'spending',label:'My spending'},{id:'emi',label:'Upcoming EMIs'},{id:'udhar',label:'Money to collect'},{id:'budget',label:'Budgets'},{id:'cards',label:'Credit cards'}].map(b=><Button key={b.id} variant={q===b.id?'primary':'secondary'} onClick={()=>{setQ(b.id);setCustom('')}}>{b.label}</Button>)}</div><label className="field space-top"><span>Or ask in English / Marathi</span><input value={custom} onChange={e=>setCustom(e.target.value)} maxLength={150} placeholder="e.g. How much money is coming from people?"/></label><div className="coach-answer"><div className="power-heading"><div className="power-mini-icon"><Sparkles/></div><Tag kind="blue">Calculated insight</Tag></div><h2>{answers[chosen].title}</h2><p>{answers[chosen].body}</p></div></Surface>
+ <div className="power-grid">{getInsights(data).slice(0,6).map((item,i)=><Surface key={i}><div className="power-heading"><div className="power-mini-icon">{item.kind==='warning'?<AlertTriangle size={20}/>:<CheckCircle2 size={20}/>}</div><Tag kind={item.kind==='warning'?'amber':'blue'}>{item.kind}</Tag></div><h2>{item.title}</h2><p className="muted">{item.body}</p></Surface>)}</div>
+ </>;
+}
+
+export function DocumentVaultView(){const f=useFinance();const [query,setQuery]=useState('');const filtered=f.data.attachments.filter(a=>a.file_name.toLowerCase().includes(query.toLowerCase())||f.data.transactions.find(t=>t.id===a.transaction_id)?.description.toLowerCase().includes(query.toLowerCase()));
+ return <><PageHead eyebrow="EVERY RECEIPT IN ONE PLACE" title="Document vault" desc="Search your transaction photos and PDF attachments. Files remain in private storage."/>
+ <Surface><label className="field"><span>Search files or transaction descriptions</span><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Receipt, invoice, merchant…"/></label><div className="power-event-list">{filtered.map(x=><div className="power-document" key={x.id}><Paperclip size={18}/><div><strong>{f.data.transactions.find(t=>t.id===x.transaction_id)?.description||'Transaction receipt'}</strong><p className="muted small">{x.created_at.slice(0,10)}</p></div><Receipt attachment={x}/></div>)}{!filtered.length&&<p className="muted">No matching attachments. Add a transaction and attach JPG, PNG, WEBP or PDF.</p>}</div></Surface>
+ <div className="tip">Document scanning/OCR and malware scanning are not enabled in this release. Do not upload untrusted documents until storage scanning is implemented and reviewed.</div></>;
+}

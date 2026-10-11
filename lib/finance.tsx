@@ -1,14 +1,15 @@
 'use client';
 import React,{createContext,useCallback,useContext,useEffect,useMemo,useRef,useState} from 'react';
 import {createClient,SupabaseClient,User} from '@supabase/supabase-js';
-import {Account,Attachment,Budget,Contact,EntityDraft,FinanceData,Loan,RecurringRule,Transaction,TxDraft} from './types';
+import {Account,Attachment,Budget,CardProfile,Contact,EntityDraft,FinanceData,Loan,RecurringRule,SavingsGoal,Transaction,TxDraft} from './types';
 import {seedDemo} from './demo';
+import {accountPositions,paise} from './financial-core';
 const url=process.env.NEXT_PUBLIC_SUPABASE_URL||'';
 const key=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY||'';
 export const isConfigured=Boolean(url && key && url.startsWith('https://') && !url.includes('YOUR_PROJECT') && !key.includes('YOUR_'));
 let cached:SupabaseClient|null=null;
 function db(){if(!isConfigured)throw new Error('Configure Supabase environment variables first.');if(!cached)cached=createClient(url,key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});return cached;}
-const TABLES=['accounts','contacts','loans','budgets','transactions','attachments','recurring_rules'] as const;
+const TABLES=['accounts','contacts','loans','budgets','transactions','attachments','recurring_rules','card_profiles','savings_goals'] as const;
 /** Avoid Supabase's server max-row truncation silently corrupting financial totals. */
 async function fetchFinanceRows(uid:string):Promise<FinanceData>{
  const client=db();const groups=await Promise.all(TABLES.map(async table=>{
@@ -21,14 +22,25 @@ async function fetchFinanceRows(uid:string):Promise<FinanceData>{
   }
   throw new Error(`Your ${table} contains more than 20,000 records. Please contact support to enable the large-account query service. Financial totals were not displayed from incomplete data.`);
  }));
- return {accounts:groups[0] as unknown as Account[],contacts:groups[1] as unknown as Contact[],loans:groups[2] as unknown as Loan[],budgets:groups[3] as unknown as Budget[],transactions:groups[4] as unknown as Transaction[],attachments:groups[5] as unknown as Attachment[],recurring_rules:groups[6] as unknown as RecurringRule[]};
+ const result={accounts:groups[0] as unknown as Account[],contacts:groups[1] as unknown as Contact[],loans:groups[2] as unknown as Loan[],budgets:groups[3] as unknown as Budget[],transactions:groups[4] as unknown as Transaction[],attachments:groups[5] as unknown as Attachment[],recurring_rules:groups[6] as unknown as RecurringRule[],card_profiles:groups[7] as unknown as CardProfile[],savings_goals:groups[8] as unknown as SavingsGoal[]};
+ // Server-side NUMERIC balance must match the local integer-paise calculation.
+ const {data:verified,error:balanceError}=await client.rpc('my_account_balances');
+ if(balanceError)throw new Error(`Finance reconciliation unavailable: ${balanceError.message}. Run the V2 SQL migration before using live mode.`);
+ const local=accountPositions(result);
+ for(const item of (verified||[]) as {account_id:string;balance:number|string}[]){
+  if(!(item.account_id in local)||paise(local[item.account_id])!==paise(item.balance)){
+   throw new Error('Local and database account balances disagree. Financial totals have not been accepted. Contact support.');
+  }
+ }
+ if((verified||[]).length!==result.accounts.length)throw new Error('Server account reconciliation is incomplete. Financial totals were not accepted.');
+ return result;
 }
-const empty:FinanceData={accounts:[],contacts:[],loans:[],budgets:[],recurring_rules:[],transactions:[],attachments:[]};
-type Model = 'accounts'|'contacts'|'loans'|'budgets'|'recurring_rules'|'transactions';
+const empty:FinanceData={accounts:[],contacts:[],loans:[],budgets:[],recurring_rules:[],transactions:[],attachments:[],card_profiles:[],savings_goals:[]};
+type Model = 'accounts'|'contacts'|'loans'|'budgets'|'recurring_rules'|'transactions'|'card_profiles'|'savings_goals';
 interface FinanceContextValue {data:FinanceData; user:User|null;demo:boolean;configured:boolean;loading:boolean;busy:boolean;error:string|null;passwordRecovery:boolean;
- login:(email:string,password:string)=>Promise<void>;signup:(email:string,password:string)=>Promise<string>;resetPassword:(email:string)=>Promise<void>;setNewPassword:(password:string)=>Promise<void>;logout:()=>Promise<void>;startDemo:()=>void;stopDemo:()=>void;reload:()=>Promise<void>;
- create:<T extends Account|Contact|Loan|Budget|RecurringRule>(table:Exclude<Model,'transactions'>,draft:EntityDraft<T>)=>Promise<void>;
- update:<T extends Account|Contact|Loan|Budget|RecurringRule>(table:Exclude<Model,'transactions'>,id:string,draft:Partial<EntityDraft<T>>)=>Promise<void>;
+ login:(email:string,password:string)=>Promise<void>;signup:(email:string,password:string)=>Promise<string>;resetPassword:(email:string)=>Promise<void>;resendConfirmation:(email:string)=>Promise<void>;setNewPassword:(password:string)=>Promise<void>;logout:()=>Promise<void>;startDemo:()=>void;stopDemo:()=>void;reload:()=>Promise<void>;
+ create:<T extends Account|Contact|Loan|Budget|RecurringRule|CardProfile|SavingsGoal>(table:Exclude<Model,'transactions'>,draft:EntityDraft<T>)=>Promise<void>;
+ update:<T extends Account|Contact|Loan|Budget|RecurringRule|CardProfile|SavingsGoal>(table:Exclude<Model,'transactions'>,id:string,draft:Partial<EntityDraft<T>>)=>Promise<void>;
  remove:(table:Model,id:string)=>Promise<void>;
  addTransaction:(draft:TxDraft,files?:File[])=>Promise<Transaction>;
  updateTransaction:(id:string,draft:TxDraft,files?:File[])=>Promise<void>;
@@ -66,6 +78,7 @@ export function FinanceProvider({children}:{children:React.ReactNode}){
  const login=async(email:string,password:string)=>{setBusy(true);try{const {data:r,error:e}=await db().auth.signInWithPassword({email,password});if(e)throw e;if(!r.user)throw new Error('Login failed');setDemo(false);demoRef.current=false;userRef.current=r.user;setUser(r.user);await reload();}finally{setBusy(false)}};
  const signup=async(email:string,password:string)=>{setBusy(true);try{const {data:r,error:e}=await db().auth.signUp({email,password});if(e)throw e;if(r.session&&r.user){setDemo(false);demoRef.current=false;userRef.current=r.user;setUser(r.user);await reload();return 'Your account is ready.';}return 'Check your email for the confirmation link, then sign in.';}finally{setBusy(false)}};
  const resetPassword=async(email:string)=>{const {error:e}=await db().auth.resetPasswordForEmail(email,{redirectTo:typeof window!=='undefined'?window.location.origin:undefined});if(e)throw e;};
+ const resendConfirmation=async(email:string)=>{const {error:e}=await db().auth.resend({type:'signup',email,options:{emailRedirectTo:typeof window!=='undefined'?window.location.origin:undefined}});if(e)throw e;};
  const setNewPassword=async(password:string)=>{if(password.length<8)throw new Error('Please choose at least 8 characters.');const {error:e}=await db().auth.updateUser({password});if(e)throw e;setPasswordRecovery(false);};
  const logout=async()=>{if(demo){setDemo(false);demoRef.current=false;setUser(null);setData(empty);return;}const {error:e}=await db().auth.signOut();if(e)throw e;setUser(null);userRef.current=null;setData(empty)};
  const startDemo=()=>{demoRef.current=true;setDemo(true);setData(safeDemoLoad());setLoading(false);};
@@ -76,7 +89,8 @@ export function FinanceProvider({children}:{children:React.ReactNode}){
  };
  const update:FinanceContextValue['update']=async(table,id,draft)=>{
   if(demo){applyDemo(prev=>({...prev,[table]:prev[table].map(t=>t.id===id?{...t,...draft}:t)} as FinanceData));return;}
-  const {error:e}=await db().from(table).update(draft as Record<string, unknown>).eq('id',id).eq('user_id',userRef.current!.id);if(e)throw e;await reload();
+  // Supabase's untyped dynamic-table update has an over-restrictive generic constraint; runtime payload is unchanged.
+  const {error:e}=await db().from(table).update(draft as never).eq('id',id).eq('user_id',userRef.current!.id);if(e)throw e;await reload();
  };
  const remove=async(table:Model,id:string)=>{
   if(table==='transactions'){const associated=data.attachments.filter(a=>a.transaction_id===id);if(!demo&&associated.length){const {error:e}=await db().storage.from('receipts').remove(associated.map(a=>a.storage_path));if(e)throw e;}}
@@ -136,6 +150,6 @@ export function FinanceProvider({children}:{children:React.ReactNode}){
   const {error:e}=await client.rpc('delete_my_account');if(e)throw e;
   await client.auth.signOut();userRef.current=null;setUser(null);setData(empty);
  };
- const value=useMemo(()=>({data,user,demo,configured:isConfigured,loading,busy,error,passwordRecovery,login,signup,resetPassword,setNewPassword,logout,startDemo,stopDemo,reload,create,update,remove,addTransaction,updateTransaction,addAttachment,removeAttachment,attachmentUrl,importTransactions,deleteAccount}),[data,user,demo,loading,busy,error,passwordRecovery,reload,applyDemo]);
+ const value=useMemo(()=>({data,user,demo,configured:isConfigured,loading,busy,error,passwordRecovery,login,signup,resetPassword,resendConfirmation,setNewPassword,logout,startDemo,stopDemo,reload,create,update,remove,addTransaction,updateTransaction,addAttachment,removeAttachment,attachmentUrl,importTransactions,deleteAccount}),[data,user,demo,loading,busy,error,passwordRecovery,reload,applyDemo]);
  return <C.Provider value={value}>{children}</C.Provider>;
 }

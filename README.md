@@ -1,3 +1,9 @@
+# FINPILOT AI V2 — Web Upgrade (Vercel + Supabase)
+
+> **Read `V2_RELEASE_NOTES.md` and `UPGRADE_EXISTING_SUPABASE.md` first.** This is an upgrade to the working web MVP, not a completed native Play Store application and not a production-certified fintech system. The new credit-card, goal, planner, assistant and vault modules are coded. Independent integrations and live release gates remain open.
+
+**Existing deployed database?** Take backup, test `supabase/v2_production_upgrade.sql` in staging first. Do **not** run `schema.sql` against your live existing project.
+
 # FINPILOT AI · Premium Finance Tracker
 
 **A functional full-stack MVP source package** for a Vercel-hosted Next.js 15 web application with Supabase Authentication, PostgreSQL, Row Level Security and private receipt storage. Android-friendly responsive layout, installable manifest, and built-in interactive demo.

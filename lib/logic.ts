@@ -1,27 +1,23 @@
 import {Account, FinanceData, Loan, Transaction, TxType} from './types';
+import {accountPositions,paise,rupees,sumPaise} from './financial-core';
 import {format, startOfMonth, endOfMonth, addMonths, isAfter, isBefore} from 'date-fns';
 export const money=(n:number,compact=false)=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:compact?0:2,minimumFractionDigits:0}).format(Number.isFinite(n)?n:0);
 export const shortDate=(d:string)=> {try{return format(new Date(d),'dd MMM yyyy')}catch{return d}};
 export const thisMonth=()=>format(new Date(),'yyyy-MM');
-export function accountBalances(data:FinanceData):Record<string,number>{
- const balances:Record<string,number>={}; data.accounts.forEach(a=>balances[a.id]=Number(a.opening_balance));
- data.transactions.forEach(t=>{const amt=Number(t.amount);
-   if(t.from_account_id && Object.prototype.hasOwnProperty.call(balances,t.from_account_id)) balances[t.from_account_id]-=amt;
-   if(t.to_account_id && Object.prototype.hasOwnProperty.call(balances,t.to_account_id)) balances[t.to_account_id]+=amt;
- });return balances;
-}
+export function accountBalances(data:FinanceData):Record<string,number>{return accountPositions(data);}
 export function totals(data:FinanceData,month=thisMonth()){
  const tx=data.transactions.filter(t=>t.occurred_at.slice(0,7)===month);
- const income=tx.filter(t=>t.type==='income').reduce((s,t)=>s+Number(t.amount),0);
- const expenses=tx.reduce((s,t)=>s+(t.type==='expense'?Number(t.amount):t.type==='loan_payment'?Number(t.interest_component):0),0);
- const outflow=tx.reduce((s,t)=>s+(['expense','receivable','repayment_out','loan_payment'].includes(t.type)?Number(t.amount):0),0);
- const balances=accountBalances(data);const balance=Object.values(balances).reduce((a,b)=>a+b,0);
- return {income,expenses,outflow,balance,balances,tx};
+ const income=rupees(sumPaise(tx.filter(t=>t.type==='income').map(t=>paise(t.amount))));
+ const expenses=rupees(sumPaise(tx.map(t=>t.type==='expense'?paise(t.amount):t.type==='loan_payment'?paise(t.interest_component):0n)));
+ const outflow=rupees(sumPaise(tx.map(t=>['expense','receivable','repayment_out','loan_payment'].includes(t.type)?paise(t.amount):0n)));
+ const balances=accountBalances(data);const balance=rupees(sumPaise(Object.values(balances).map(paise)));
+ const cashBalance=rupees(sumPaise(data.accounts.filter(a=>a.kind!=='credit_card').map(a=>paise(balances[a.id]||0))));
+ return {income,expenses,outflow,balance,cashBalance,balances,tx};
 }
 export function personBalance(tx:Transaction[],contactId:string){
- return tx.filter(t=>t.contact_id===contactId).reduce((s,t)=>s+(t.type==='receivable'?Number(t.amount):t.type==='repayment_in'?-Number(t.amount):t.type==='payable'?-Number(t.amount):t.type==='repayment_out'?Number(t.amount):0),0);
+ return rupees(sumPaise(tx.filter(t=>t.contact_id===contactId).map(t=>t.type==='receivable'||t.type==='repayment_out'?paise(t.amount):t.type==='repayment_in'||t.type==='payable'?-paise(t.amount):0n)));
 }
-export function loanBalance(loan:Loan,tx:Transaction[]){return Math.max(0,Number(loan.principal)-tx.filter(t=>t.loan_id===loan.id&&t.type==='loan_payment').reduce((s,t)=>s+Number(t.principal_component||0),0));}
+export function loanBalance(loan:Loan,tx:Transaction[]){return rupees((v=>v>0n?v:0n)(paise(loan.principal)-sumPaise(tx.filter(t=>t.loan_id===loan.id&&t.type==='loan_payment').map(t=>paise(t.principal_component||0)))));}
 export function nextLoanDue(loan:Loan,tx:Transaction[],now=new Date()){
  const dueDay=Math.max(1,Math.min(28,Number(loan.due_day)));
  const start=new Date(`${loan.start_date.slice(0,10)}T12:00:00`);
@@ -32,11 +28,11 @@ export function nextLoanDue(loan:Loan,tx:Transaction[],now=new Date()){
  return d;
 }
 export function expenseBreakdown(data:FinanceData,month=thisMonth()){
- const group:Record<string,number>={};
- data.transactions.filter(t=>t.type==='expense'&&t.occurred_at.slice(0,7)===month).forEach(t=>group[t.category||'Other']=(group[t.category||'Other']||0)+Number(t.amount));
- const interest=data.transactions.filter(t=>t.type==='loan_payment'&&t.occurred_at.slice(0,7)===month).reduce((s,t)=>s+Number(t.interest_component),0);
- if(interest>0)group['Loan Interest']=(group['Loan Interest']||0)+interest;
- return Object.entries(group).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);
+ const group:Record<string,bigint>={};
+ data.transactions.filter(t=>t.type==='expense'&&t.occurred_at.slice(0,7)===month).forEach(t=>group[t.category||'Other']=(group[t.category||'Other']||0n)+paise(t.amount));
+ const interest=sumPaise(data.transactions.filter(t=>t.type==='loan_payment'&&t.occurred_at.slice(0,7)===month).map(t=>paise(t.interest_component)));
+ if(interest>0n)group['Loan Interest']=(group['Loan Interest']||0n)+interest;
+ return Object.entries(group).map(([name,value])=>({name,value:rupees(value)})).sort((a,b)=>b.value-a.value);
 }
 export function monthlyChart(data:FinanceData){return Array.from({length:6},(_,i)=>{
  const month=format(addMonths(startOfMonth(new Date()),i-5),'yyyy-MM');const m=totals(data,month);
@@ -47,7 +43,7 @@ export function getInsights(data:FinanceData){
  const pending=data.loans.filter(l=>loanBalance(l,data.transactions)>0).map(l=>({l,due:nextLoanDue(l,data.transactions)}));
  const soon=pending.filter(x=>(x.due.getTime()-now.getTime())/(86400000)<=7);
  const needed=soon.reduce((s,x)=>s+Number(x.l.emi_amount),0);
- if(needed>0&&t.balance<needed)insights.push({kind:'warning',title:'Upcoming EMI shortfall',body:`${money(needed)} is due soon, but the tracked balance is ${money(t.balance)}. Verify bank balances before payment.`});
+ if(needed>0&&t.cashBalance<needed)insights.push({kind:'warning',title:'Upcoming EMI shortfall',body:`${money(needed)} is due soon, but the tracked balance is ${money(t.cashBalance)}. Verify bank balances before payment.`});
  else if(soon.length)insights.push({kind:'info',title:'Upcoming EMIs',body:`${soon.length} upcoming payment(s) totalling ${money(needed)}. Ensure sufficient cleared funds.`});
  // Due dates on personal receivables are prompts to review the ledger, never proof of non-payment.
  for(const contact of data.contacts){const net=personBalance(data.transactions,contact.id);
@@ -61,7 +57,7 @@ export function getInsights(data:FinanceData){
  // A forecast of scheduled outflows; account balance remains only a tracked estimate.
  const upcomingRules=data.recurring_rules.filter(r=>r.active && r.type==='expense' && `${month}-${String(r.day_of_month).padStart(2,'0')}`>=today && !data.transactions.some(t=>t.import_hash===`recurring:${r.id}:${month}`));
  const futureOutflows=upcomingRules.reduce((s,r)=>s+Number(r.amount),0);
- if(futureOutflows>0&&t.balance<futureOutflows+needed)insights.push({kind:'warning',title:'Potential cash shortfall',body:`Upcoming scheduled expenses and near-term EMIs total ${money(futureOutflows+needed)} versus a tracked balance of ${money(t.balance)}. Verify cleared funds.`});
+ if(futureOutflows>0&&t.cashBalance<futureOutflows+needed)insights.push({kind:'warning',title:'Potential cash shortfall',body:`Upcoming scheduled expenses and near-term EMIs total ${money(futureOutflows+needed)} versus a tracked cash balance of ${money(t.cashBalance)}. Verify cleared funds.`});
  const cats=expenseBreakdown(data);
  if(cats[0]&&t.expenses>0&&cats[0].value/t.expenses>=.4)insights.push({kind:'info',title:`${cats[0].name} is your biggest category`,body:`${money(cats[0].value)} represents ${Math.round(cats[0].value/t.expenses*100)}% of this month's expenses.`});
  const owed=data.contacts.map(c=>personBalance(data.transactions,c.id)).filter(x=>x>0).reduce((a,b)=>a+b,0);
